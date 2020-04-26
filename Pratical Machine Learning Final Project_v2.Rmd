@@ -1,0 +1,158 @@
+---
+title: "Practical Machine Learning Final Project"
+author: "Edison"
+date: "4/24/2020"
+output: html_document
+---
+
+## Introduction
+
+#### Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+#### Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+#### Goal
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, my goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.
+
+In my report, I will describe: 
+  - how I built the model,
+  - how I used cross validation, 
+  - what the expected out of sample error is,
+  - why I made the choices,
+  - how I used my prediction model to predict 20 different test cases.
+
+## Data
+#### download data
+```{r}
+# load packages
+library("caret")
+library("rpart")
+library("rpart.plot")
+library("RColorBrewer")
+library("rattle")
+library("randomForest")
+library("gbm")
+library("corrplot")
+
+# setting seed
+set.seed(999)
+
+# download data
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+```
+
+#### Clean data
+I will remove the variables with missing more than 90% of observations and most of the observations are very closed to zero.  
+
+```{r}
+# Remove NA
+na_counting <- colSums(is.na(training))
+training <- training[, na_counting == 0]
+testing  <- testing[, na_counting == 0]
+dim(training); dim(testing)
+
+# Remove the data near zero
+NZV <- nearZeroVar(training)
+training <- training[,-NZV]
+testing  <- testing[ ,-NZV]
+dim(training); dim(testing)
+
+```
+
+## Prediction Model
+I will apply corss-validation for 10 times. In each time, the corss-validation randomly picks 60% of data for training set. And the rest 40% data will be in the tseting set. I will calculate the out of sample error for each prediction. Here, we give the prediciton error an one unit loss. So the the out of sample error is the amount of incorrect predicions. Then the expected out of sample error is the average of the 10 out of sample error
+
+#### 1. Decision Trees
+
+```{r Decision Tree}
+# creat a vector for saving the out of sample results
+Model1_oos <- NULL
+
+for (i in 1:10) {
+# Separate the whole training set into two sets
+inTrain <- createDataPartition(training$classe, p=0.6, list=FALSE)
+myTraining <- training[inTrain, ]
+myTesting <- training[-inTrain, ]
+
+# apply algorithm
+Model1_decisionTree <- rpart(classe ~ ., data=myTraining[,-1], method="class")
+Model1_decisionTree_prediction <- predict(Model1_decisionTree, myTesting, type = "class")
+Model1_oos[i] <- sum(Model1_decisionTree_prediction != myTesting$classe)
+}
+print(paste("The Expected Out of Sample Error of Model 1 is", mean(Model1_oos)))
+
+```
+
+#### 2. Random Forest
+
+```{r Random Forest}
+# creat a vector for saving the out of sample results
+Model2_oos <- NULL
+
+for (i in 1:10) {
+# Separate the whole training set into two sets
+inTrain <- createDataPartition(training$classe, p=0.6, list=FALSE)
+myTraining <- training[inTrain, ]
+myTesting <- training[-inTrain, ]
+
+# apply algorithm
+Model2_randomForest <- randomForest(classe ~ ., data=myTraining[,-1])
+Model2_randomForest_prediction <- predict(Model2_randomForest, myTesting, type = "class")
+Model2_oos[i] <- sum(Model2_randomForest_prediction != myTesting$classe)
+}
+print(paste("The Expected Out of Sample Error of Model 2 is", mean(Model2_oos)))
+
+```
+
+#### 3. Generalized Boosted Regression
+
+```{r Generalized Boosted Regression}
+# creat a vector for saving the out of sample results
+Model3_oos <- NULL
+
+for (i in 1:10) {
+# Separate the whole training set into two sets
+inTrain <- createDataPartition(training$classe, p=0.6, list=FALSE)
+myTraining <- training[inTrain, ]
+myTesting <- training[-inTrain, ]
+
+# apply algorithm
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 5,
+                           repeats = 1)
+Model3_gbm <- train(classe ~ ., data=myTraining[,-1], method = "gbm",
+                 trControl = fitControl,
+                 verbose = FALSE)
+Model3_gbm_prediction <- predict(Model3_gbm, newdata=myTesting)
+Model3_oos[i] <- sum(Model3_gbm_prediction != myTesting$classe)
+}
+print(paste("The Expected Out of Sample Error of Model 3 is", mean(Model3_oos)))
+```
+
+## Prediction on the Test Data
+
+Comparing the three algorithms above, the random forest achieve the lowest expected out of sample error with the myTesting dataset. It means that the random forest performs the best accuracy. Thus, we can apply the random forest method to predict the 20 test data. And the results will be shown below.
+
+```{r}
+# Apply a small trick to force the type of variables to be same
+testing <- rbind(training[2,-59] , testing[,-59])
+testing <- testing[-1,]
+# Prediction
+final_randomForest <- randomForest(classe ~ ., data=training[,-1])
+prediction_20test <- predict(final_randomForest, testing, type = "class")
+prediction_20test
+```
